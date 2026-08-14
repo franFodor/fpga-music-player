@@ -33,6 +33,13 @@ module spi_tb;
   // Clock
   always #5 clk = ~clk;
 
+  // Dump waveforms only for interactive "apio sim", not for "apio test" (CI).
+  // Do not call $dumpfile here: Apio sets the .vcd location itself and
+  // treats an explicit $dumpfile call in a testbench as a fatal error.
+`ifdef APIO_SIM
+  initial $dumpvars(0, spi_tb);
+`endif
+
   // Pulses reset for one clk cycle and lets the DUT settle back to IDLE.
   task automatic do_reset;
     reset = 1;
@@ -98,6 +105,7 @@ module spi_tb;
     integer i;
     integer sclk_edges;
     integer last_edge_t;
+    integer fail_count;
     reg pass_tx, pass_rx;
     reg [7:0] actual_tx;
     reg timing_ok;
@@ -118,6 +126,7 @@ module spi_tb;
 
 
     clk = 0;
+    fail_count = 0;
 
     // One time startup reset
     start_signal = 0;
@@ -128,8 +137,10 @@ module spi_tb;
     // a do_reset() anyway.
     if (mosi == 1 && sclk == 0)
       $display("PASS idle-outputs after reset: mosi=%0b, sclk=%0b (expected mosi=1, sclk=0)", mosi, sclk);
-    else
+    else begin
       $display("FAIL idle-outputs after reset: mosi=%0b, sclk=%0b (expected mosi=1, sclk=0)", mosi, sclk);
+      fail_count = fail_count + 1;
+    end
 
     // Section 1: timing check
     // Confirms sclk toggles exactly every MAX_HALF_PERIOD_COUNT clk cycles and
@@ -170,6 +181,7 @@ module spi_tb;
     end else begin
       $display("FAIL section1 timing: got %0d sclk half-period edges (expected 15), timing_ok=%0d (1=every half-period was exactly %0d clk cycles, 0=at least one half-period was off)",
                 sclk_edges, timing_ok, my_dut.MAX_HALF_PERIOD_COUNT);
+      fail_count = fail_count + 1;
     end
 
     // Reset before next section
@@ -181,10 +193,16 @@ module spi_tb;
     do_transfer(byte_to_send, byte_to_receive, pass_tx, pass_rx, actual_tx);
 
     if (pass_tx) $display("PASS section2 TX: mosi shifted out %08b, matches byte_to_send %08b", actual_tx, byte_to_send);
-    else $display("FAIL section2 TX: mosi shifted out %08b, expected byte_to_send %08b", actual_tx, byte_to_send);
+    else begin
+      $display("FAIL section2 TX: mosi shifted out %08b, expected byte_to_send %08b", actual_tx, byte_to_send);
+      fail_count = fail_count + 1;
+    end
 
     if (pass_rx) $display("PASS section2 RX: byte_received %08b, matches byte_to_receive (miso pattern) %08b", byte_received, byte_to_receive);
-    else $display("FAIL section2 RX: byte_received %08b, expected byte_to_receive (miso pattern) %08b", byte_received, byte_to_receive);
+    else begin
+      $display("FAIL section2 RX: byte_received %08b, expected byte_to_receive (miso pattern) %08b", byte_received, byte_to_receive);
+      fail_count = fail_count + 1;
+    end
 
     // One clk cycle after done_signal, the DUT should already be back in IDLE
     // driving mosi high and sclk low again.
@@ -192,8 +210,10 @@ module spi_tb;
     #1;
     if (mosi == 1 && sclk == 0)
       $display("PASS idle-outputs after done_signal: mosi=%0b, sclk=%0b (expected mosi=1, sclk=0)", mosi, sclk);
-    else
+    else begin
       $display("FAIL idle-outputs after done_signal: mosi=%0b, sclk=%0b (expected mosi=1, sclk=0)", mosi, sclk);
+      fail_count = fail_count + 1;
+    end
 
     // Reset before next section
     do_reset();
@@ -232,15 +252,22 @@ module spi_tb;
                                 i, my_dut.state, my_dut.IDLE, my_dut.bit_count, my_dut.half_period_count);
         else $display("FAIL reset (i=%0d, reset asserted exactly at natural done edge): state=%0d (expected IDLE=%0d), bit_count=%0d (expected 0), half_period_count=%0d (expected 0)",
                        i, my_dut.state, my_dut.IDLE, my_dut.bit_count, my_dut.half_period_count);
+        fail_count = fail_count + 1;
       end
 
       do_transfer(byte_to_send, byte_to_receive, pass_tx, pass_rx, actual_tx);
 
       if (pass_tx) $display("PASS reset-loop (i=%0d) TX: mosi shifted out %08b, matches byte_to_send %08b", i, actual_tx, byte_to_send);
-      else $display("FAIL reset-loop (i=%0d) TX: mosi shifted out %08b, expected byte_to_send %08b", i, actual_tx, byte_to_send);
+      else begin
+        $display("FAIL reset-loop (i=%0d) TX: mosi shifted out %08b, expected byte_to_send %08b", i, actual_tx, byte_to_send);
+        fail_count = fail_count + 1;
+      end
 
       if (pass_rx) $display("PASS reset-loop (i=%0d) RX: byte_received %08b, matches byte_to_receive %08b", i, byte_received, byte_to_receive);
-      else $display("FAIL reset-loop (i=%0d) RX: byte_received %08b, expected byte_to_receive %08b", i, byte_received, byte_to_receive);
+      else begin
+        $display("FAIL reset-loop (i=%0d) RX: byte_received %08b, expected byte_to_receive %08b", i, byte_received, byte_to_receive);
+        fail_count = fail_count + 1;
+      end
     end
 
 
@@ -266,6 +293,7 @@ module spi_tb;
     end else begin
       $display("FAIL mid-transfer reset: reset asserted after 34 clk cycles, state=%0d (expected IDLE=%0d), bit_count=%0d (expected 0), half_period_count=%0d (expected 0)",
                 my_dut.state, my_dut.IDLE, my_dut.bit_count, my_dut.half_period_count);
+      fail_count = fail_count + 1;
     end
 
     // Reset before next section
@@ -284,10 +312,16 @@ module spi_tb;
     do_transfer(byte_to_send_2, byte_to_receive_2, pass_tx, pass_rx, actual_tx);
 
     if (pass_tx) $display("PASS back-to-back-transfer TX: mosi shifted out %08b, matches byte_to_send %08b", actual_tx, byte_to_send_2);
-    else $display("FAIL back-to-back-transfer TX: mosi shifted out %08b, expected byte_to_send %08b", actual_tx, byte_to_send_2);
+    else begin
+      $display("FAIL back-to-back-transfer TX: mosi shifted out %08b, expected byte_to_send %08b", actual_tx, byte_to_send_2);
+      fail_count = fail_count + 1;
+    end
 
     if (pass_rx) $display("PASS back-to-back-transfer RX: byte_received %08b, matches byte_to_receive %08b", byte_received, byte_to_receive_2);
-    else $display("FAIL back-to-back-transfer RX: byte_received %08b, expected byte_to_receive %08b", byte_received, byte_to_receive_2);
+    else begin
+      $display("FAIL back-to-back-transfer RX: byte_received %08b, expected byte_to_receive %08b", byte_received, byte_to_receive_2);
+      fail_count = fail_count + 1;
+    end
 
     // Reset before next section
     do_reset();
@@ -340,13 +374,17 @@ module spi_tb;
 
     if (mosi_accum == byte_to_send_3)
       $display("PASS start-ignored-mid-transfer TX: mosi shifted out %08b, matches original byte_to_send %08b (spurious mid-transfer start_signal pulse with different byte_to_send was ignored)", mosi_accum, byte_to_send_3);
-    else
+    else begin
       $display("FAIL start-ignored-mid-transfer TX: mosi shifted out %08b, expected original byte_to_send %08b (dut may have restarted or corrupted the transfer on the spurious start_signal pulse)", mosi_accum, byte_to_send_3);
+      fail_count = fail_count + 1;
+    end
 
     if (byte_received == byte_to_receive_3)
       $display("PASS start-ignored-mid-transfer RX: byte_received %08b, matches byte_to_receive %08b", byte_received, byte_to_receive_3);
-    else
+    else begin
       $display("FAIL start-ignored-mid-transfer RX: byte_received %08b, expected byte_to_receive %08b", byte_received, byte_to_receive_3);
+      fail_count = fail_count + 1;
+    end
 
     // Reset before next section
     do_reset();
@@ -362,10 +400,16 @@ module spi_tb;
     do_transfer(byte_to_send_4, byte_to_receive_4, pass_tx, pass_rx, actual_tx);
 
     if (pass_tx) $display("PASS section6 TX (tx=0x00): mosi shifted out %08b, matches byte_to_send %08b", actual_tx, byte_to_send_4);
-    else $display("FAIL section6 TX (tx=0x00): mosi shifted out %08b, expected byte_to_send %08b", actual_tx, byte_to_send_4);
+    else begin
+      $display("FAIL section6 TX (tx=0x00): mosi shifted out %08b, expected byte_to_send %08b", actual_tx, byte_to_send_4);
+      fail_count = fail_count + 1;
+    end
 
     if (pass_rx) $display("PASS section6 RX (rx=0xFF): byte_received %08b, matches byte_to_receive %08b", byte_received, byte_to_receive_4);
-    else $display("FAIL section6 RX (rx=0xFF): byte_received %08b, expected byte_to_receive %08b", byte_received, byte_to_receive_4);
+    else begin
+      $display("FAIL section6 RX (rx=0xFF): byte_received %08b, expected byte_to_receive %08b", byte_received, byte_to_receive_4);
+      fail_count = fail_count + 1;
+    end
 
     do_reset();
 
@@ -374,11 +418,19 @@ module spi_tb;
     do_transfer(byte_to_send_5, byte_to_receive_5, pass_tx, pass_rx, actual_tx);
 
     if (pass_tx) $display("PASS section6 TX (tx=0xFF): mosi shifted out %08b, matches byte_to_send %08b", actual_tx, byte_to_send_5);
-    else $display("FAIL section6 TX (tx=0xFF): mosi shifted out %08b, expected byte_to_send %08b", actual_tx, byte_to_send_5);
+    else begin
+      $display("FAIL section6 TX (tx=0xFF): mosi shifted out %08b, expected byte_to_send %08b", actual_tx, byte_to_send_5);
+      fail_count = fail_count + 1;
+    end
 
     if (pass_rx) $display("PASS section6 RX (rx=0x00): byte_received %08b, matches byte_to_receive %08b", byte_received, byte_to_receive_5);
-    else $display("FAIL section6 RX (rx=0x00): byte_received %08b, expected byte_to_receive %08b", byte_received, byte_to_receive_5);
+    else begin
+      $display("FAIL section6 RX (rx=0x00): byte_received %08b, expected byte_to_receive %08b", byte_received, byte_to_receive_5);
+      fail_count = fail_count + 1;
+    end
 
+    if (fail_count > 0) $fatal(1, "%0d check(s) FAILED", fail_count);
+    else $display("All checks PASSED");
     $finish;
   end
 

@@ -9,12 +9,18 @@ module spi_tb;
   reg  [7:0] byte_to_send;
   wire [7:0] byte_received;
 
+  // Half period target (count - 1) fed to the DUT's half_period port. Held
+  // constant at HALF_PERIOD for all sections; section 7 sweeps it.
+  localparam HALF_PERIOD = 3;
+  reg [$clog2(4)-1:0] half_period;
+
   reg  [7:0] byte_to_receive;
   reg  [7:0] mosi_accum;
   reg  [7:0] bit_count;
 
-  // MAX_HALF_PERIOD_COUNT=4 keeps the simulated transfer short (4 clk cycles
-  // per sclk half period instead of the default 62) so the testbench runs fast.
+  // MAX_HALF_PERIOD_COUNT=4 sizes half_period_count/half_period_target and caps
+  // half_period; HALF_PERIOD=3 (4 clk cycles per sclk half period) is the value
+  // driven on half_period for every section except the runtime-change check.
   spi #(
       .MAX_HALF_PERIOD_COUNT(4)
   ) my_dut (
@@ -23,6 +29,7 @@ module spi_tb;
       .start_signal(start_signal),
       .byte_to_send(byte_to_send),
       .miso(miso),
+      .half_period(half_period),
       .done_signal(done_signal),
       .sclk(sclk),
       .byte_received(byte_received),
@@ -126,6 +133,7 @@ module spi_tb;
 
 
     clk = 0;
+    half_period = HALF_PERIOD;
     fail_count = 0;
 
     // One time startup reset
@@ -143,7 +151,7 @@ module spi_tb;
     end
 
     // Section 1: timing check
-    // Confirms sclk toggles exactly every MAX_HALF_PERIOD_COUNT clk cycles and
+    // Confirms sclk toggles exactly every (HALF_PERIOD + 1) clk cycles and
     // that a full 8 bit transfer produces 15 half period edges before done_signal
     // (16 edges would complete the last half period; the 16th is folded into
     // done_signal instead of a further sclk toggle).
@@ -167,20 +175,20 @@ module spi_tb;
         // appears once SETUP hands off to SAMPLE, which costs one extra clk
         // cycle of latency versus the steady-state half period. Every edge after
         // the first is a plain SETUP/SAMPLE handoff and is exactly
-        // MAX_HALF_PERIOD_COUNT cycles from the previous one, so only edges 2
+        // (HALF_PERIOD + 1) cycles from the previous one, so only edges 2
         // and up are checked against the nominal period.
-        if (sclk_edges > 1 && ($time - last_edge_t) != CLK_PERIOD * my_dut.MAX_HALF_PERIOD_COUNT)
+        if (sclk_edges > 1 && ($time - last_edge_t) != CLK_PERIOD * (HALF_PERIOD + 1))
           timing_ok = 0;
         last_edge_t = $time;
       end
     end
 
     if (sclk_edges == 15 && timing_ok) begin
-      $display("PASS section1 timing: got %0d sclk half-period edges (expected 15 = 8 bits x 2 - 1 folded into done), each spaced %0d clk cycles (MAX_HALF_PERIOD_COUNT) apart, done_signal fired on schedule",
-                sclk_edges, my_dut.MAX_HALF_PERIOD_COUNT);
+      $display("PASS section1 timing: got %0d sclk half-period edges (expected 15 = 8 bits x 2 - 1 folded into done), each spaced %0d clk cycles (HALF_PERIOD + 1) apart, done_signal fired on schedule",
+                sclk_edges, (HALF_PERIOD + 1));
     end else begin
       $display("FAIL section1 timing: got %0d sclk half-period edges (expected 15), timing_ok=%0d (1=every half-period was exactly %0d clk cycles, 0=at least one half-period was off)",
-                sclk_edges, timing_ok, my_dut.MAX_HALF_PERIOD_COUNT);
+                sclk_edges, timing_ok, (HALF_PERIOD + 1));
       fail_count = fail_count + 1;
     end
 
@@ -232,7 +240,7 @@ module spi_tb;
       #1;
       start_signal = 0;
 
-      while (cycle_count < 16 * my_dut.MAX_HALF_PERIOD_COUNT + i) begin
+      while (cycle_count < 16 * (HALF_PERIOD + 1) + i) begin
         @(posedge clk);
         #1;
         cycle_count = cycle_count + 1;
@@ -426,6 +434,76 @@ module spi_tb;
     if (pass_rx) $display("PASS section6 RX (rx=0x00): byte_received %08b, matches byte_to_receive %08b", byte_received, byte_to_receive_5);
     else begin
       $display("FAIL section6 RX (rx=0x00): byte_received %08b, expected byte_to_receive %08b", byte_received, byte_to_receive_5);
+      fail_count = fail_count + 1;
+    end
+
+    // Reset before next section
+    do_reset();
+
+    // Section 7: runtime half_period change
+    // half_period is only latched into half_period_target when a transfer
+    // starts (IDLE -> SETUP), so a change made mid-transfer must not affect
+    // the transfer already in flight, and must only take effect on the next
+    // one. Checked here by: (a) changing half_period partway through a
+    // transfer and confirming that transfer's sclk edges keep the OLD spacing
+    // throughout, then (b) confirming the very next transfer runs at the NEW
+    // spacing from its first edge.
+    half_period = HALF_PERIOD;
+    start_signal = 1;
+    @(posedge clk);
+    #1;
+    start_signal = 0;
+
+    sclk_edges  = 0;
+    timing_ok   = 1;
+    last_edge_t = $time;
+
+    while (!done_signal) begin
+      @(posedge sclk or negedge sclk or posedge done_signal);
+      #1;
+      if (!done_signal) begin
+        sclk_edges = sclk_edges + 1;
+        if (sclk_edges > 1 && ($time - last_edge_t) != CLK_PERIOD * (HALF_PERIOD + 1))
+          timing_ok = 0;
+        last_edge_t = $time;
+        // Injected once, well after the transfer has started; must not affect
+        // the spacing checked above for the remainder of this transfer.
+        if (sclk_edges == 3) half_period = 1;
+      end
+    end
+
+    if (timing_ok)
+      $display("PASS section7 mid-transfer half_period change ignored: all sclk edges stayed spaced %0d clk cycles (old HALF_PERIOD) apart despite half_period changing to 1 mid-transfer",
+                (HALF_PERIOD + 1));
+    else begin
+      $display("FAIL section7 mid-transfer half_period change ignored: at least one sclk edge was not spaced %0d clk cycles apart (old HALF_PERIOD) after half_period changed to 1 mid-transfer",
+                (HALF_PERIOD + 1));
+      fail_count = fail_count + 1;
+    end
+
+    sclk_edges  = 0;
+    timing_ok   = 1;
+    last_edge_t = $time;
+    start_signal = 1;
+    @(posedge clk);
+    #1;
+    start_signal = 0;
+
+    while (!done_signal) begin
+      @(posedge sclk or negedge sclk or posedge done_signal);
+      #1;
+      if (!done_signal) begin
+        sclk_edges = sclk_edges + 1;
+        if (sclk_edges > 1 && ($time - last_edge_t) != CLK_PERIOD * (1 + 1))
+          timing_ok = 0;
+        last_edge_t = $time;
+      end
+    end
+
+    if (timing_ok)
+      $display("PASS section7 next-transfer half_period change applied: all sclk edges spaced %0d clk cycles (new half_period=1) apart", 2);
+    else begin
+      $display("FAIL section7 next-transfer half_period change applied: at least one sclk edge was not spaced %0d clk cycles apart (new half_period=1)", 2);
       fail_count = fail_count + 1;
     end
 

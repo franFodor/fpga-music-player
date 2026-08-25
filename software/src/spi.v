@@ -3,13 +3,18 @@
 // Sclk idles low (mode 0 style): low during setup of each bit, high while
 // sampling. See sim/spi_tb.v for timing details and reasoning.
 module spi #(
-    parameter MAX_HALF_PERIOD_COUNT = 62  // placeholder
+    parameter MAX_HALF_PERIOD_COUNT = 62  // sizes half_period_count; also default half_period at reset
 ) (
     input wire       clk,
     input wire       reset,
     input wire       start_signal,
     input wire [7:0] byte_to_send,
     input wire       miso,
+    // Half period length in clk cycles, minus 1 (e.g. 3 means 4 clk cycles per
+    // half period), same convention as MAX_HALF_PERIOD_COUNT - 1 below. Latched
+    // into half_period_target when a transfer starts, so a change only takes
+    // effect on the next transfer, never mid-transfer.
+    input wire [$clog2(MAX_HALF_PERIOD_COUNT)-1:0] half_period,
 
     output reg       sclk,
     output reg       mosi,
@@ -25,6 +30,7 @@ module spi #(
   reg [1:0] state;
   reg [2:0] bit_count;
   reg [$clog2(MAX_HALF_PERIOD_COUNT)-1:0] half_period_count;
+  reg [$clog2(MAX_HALF_PERIOD_COUNT)-1:0] half_period_target;
   reg [7:0] tx_shift_reg;  // current value of byte to send
 
   always @(posedge clk) begin
@@ -32,6 +38,7 @@ module spi #(
       state <= IDLE;
       bit_count <= 0;
       half_period_count <= 0;
+      half_period_target <= MAX_HALF_PERIOD_COUNT - 1;
       mosi <= 1;  // convention
       sclk <= 0;
       done_signal <= 0;
@@ -51,6 +58,7 @@ module spi #(
             tx_shift_reg <= byte_to_send;
             bit_count <= 0;
             half_period_count <= 0;
+            half_period_target <= half_period;
             state <= SETUP;
           end
         end
@@ -62,7 +70,7 @@ module spi #(
         SETUP: begin
           sclk <= 0;
           mosi <= tx_shift_reg[7];
-          if (half_period_count != MAX_HALF_PERIOD_COUNT - 1) begin
+          if (half_period_count != half_period_target) begin
             half_period_count <= half_period_count + 1;
           end else begin
             half_period_count <= 0;
@@ -78,7 +86,7 @@ module spi #(
         // returns to IDLE instead of looping back to SETUP.
         SAMPLE: begin
           sclk <= 1;
-          if (half_period_count != MAX_HALF_PERIOD_COUNT - 1) begin
+          if (half_period_count != half_period_target) begin
             half_period_count <= half_period_count + 1;
           end else begin
             half_period_count <= 0;

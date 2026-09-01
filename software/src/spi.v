@@ -25,7 +25,7 @@ module spi #(
   // IDLE : waiting for start_signal, sclk/mosi held at their idle levels
   // SETUP: sclk low, mosi driving the next bit, gives the far side setup time
   // SAMPLE: sclk high, miso is latched into byte_received at the end of this state
-  localparam logic [1:0] IDLE = 2'b00, SETUP = 2'b01, SAMPLE = 2'b10;
+  localparam [1:0] IDLE = 2'b00, SETUP = 2'b01, SAMPLE = 2'b10;
 
   reg [1:0] state;
   reg [2:0] bit_count;

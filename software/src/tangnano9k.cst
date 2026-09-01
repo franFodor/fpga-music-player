@@ -1,0 +1,34 @@
+// Tang Nano 9K pin constraints. Pin numbers cross-checked against the
+// board's published schematic and a working community project's .cst
+// (github.com/hi631/tang-nano-9K, NES/fpganes/src/NES_TN9.cst) -- not yet
+// confirmed against real hardware here.
+
+IO_LOC  "clk27M" 52;
+IO_PORT "clk27M" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC  "BTN0" 4;
+IO_PORT "BTN0" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// Onboard TF (microSD) slot, SPI mode
+IO_LOC  "SD_CS" 38;
+IO_PORT "SD_CS" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "SD_SCK" 36;
+IO_PORT "SD_SCK" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "SD_CMD" 37;
+IO_PORT "SD_CMD" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "SD_DAT0" 39;
+IO_PORT "SD_DAT0" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// Onboard LEDs, active-low
+IO_LOC  "LED[0]" 10;
+IO_PORT "LED[0]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "LED[1]" 11;
+IO_PORT "LED[1]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "LED[2]" 13;
+IO_PORT "LED[2]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "LED[3]" 14;
+IO_PORT "LED[3]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "LED[4]" 15;
+IO_PORT "LED[4]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "LED[5]" 16;
+IO_PORT "LED[5]" IO_TYPE=LVCMOS33 DRIVE=8;

@@ -1,7 +1,6 @@
-// Testbench for a first-order sigma-delta (PDM) modulator (module under
-// test not written yet -- this file is the contract for it).
+// Testbench for the first-order sigma-delta (PDM) modulator (src/sigma_delta.v).
 //
-// Expected DUT interface (to be implemented as src/sigma_delta.v):
+// DUT interface:
 //
 //   module sigma_delta #(
 //       parameter WIDTH = 4  // signed sample width; FS = 2**WIDTH internally
@@ -14,17 +13,16 @@
 //
 // Semantics: every rising clk edge, the DUT runs one iteration of the
 // accumulate/compare/subtract-back loop on the current sample_in (offset to
-// unsigned internally, same as sigmadel.py's `input_ = int(input()) +
-// fs // 2` step -- sample_in here is the RAW signed value, the DUT does the
-// offset itself), and drives the resulting bit onto pdm_out synchronously
-// (registered, valid to sample shortly after the edge that produced it).
-// reset synchronously clears the internal accumulator to 0 and forces
-// pdm_out to 0.
+// unsigned internally -- sample_in here is the RAW signed value, the DUT
+// does the offset itself), and drives the resulting bit onto pdm_out
+// synchronously (registered, valid to sample shortly after the edge that
+// produced it). reset synchronously clears the internal accumulator to 0
+// and forces pdm_out to 0.
 //
-// Golden bitstreams below were produced by running sigmadel.py itself
-// (fs=16, cycles=16, offset-corrected) for each sample_in value -- this
-// testbench checks the DUT against that known-good software model, not
-// against a hand-derived value.
+// Golden bitstreams below (fs=16, 16 cycles per case) were computed from a
+// throwaway Python model of the same accumulate/compare/subtract loop
+// before the DUT existed -- this checks the DUT against that known-good
+// behavior, not a hand-derived value.
 module sigma_delta_tb;
 
   localparam WIDTH = 4;
@@ -99,7 +97,7 @@ module sigma_delta_tb;
     do_reset();
     run_case(-4'sd3, actual);
     if (actual == 16'b0001001001001001)
-      $display("PASS sample_in=-3: pdm_out stream=%016b, matches sigmadel.py reference", actual);
+      $display("PASS sample_in=-3: pdm_out stream=%016b, matches golden reference", actual);
     else begin
       $display("FAIL sample_in=-3: pdm_out stream=%016b, expected 0001001001001001", actual);
       fail_count = fail_count + 1;
@@ -111,7 +109,7 @@ module sigma_delta_tb;
     do_reset();
     run_case(4'sd0, actual);
     if (actual == 16'b0101010101010101)
-      $display("PASS sample_in=0 (silence): pdm_out stream=%016b, matches sigmadel.py reference", actual);
+      $display("PASS sample_in=0 (silence): pdm_out stream=%016b, matches golden reference", actual);
     else begin
       $display("FAIL sample_in=0 (silence): pdm_out stream=%016b, expected 0101010101010101", actual);
       fail_count = fail_count + 1;
@@ -122,7 +120,7 @@ module sigma_delta_tb;
     do_reset();
     run_case(-4'sd8, actual);
     if (actual == 16'b0000000000000000)
-      $display("PASS sample_in=-8 (max negative): pdm_out stream=%016b, matches sigmadel.py reference", actual);
+      $display("PASS sample_in=-8 (max negative): pdm_out stream=%016b, matches golden reference", actual);
     else begin
       $display("FAIL sample_in=-8 (max negative): pdm_out stream=%016b, expected 0000000000000000", actual);
       fail_count = fail_count + 1;
@@ -133,7 +131,7 @@ module sigma_delta_tb;
     do_reset();
     run_case(4'sd7, actual);
     if (actual == 16'b0111111111111111)
-      $display("PASS sample_in=7 (max positive): pdm_out stream=%016b, matches sigmadel.py reference", actual);
+      $display("PASS sample_in=7 (max positive): pdm_out stream=%016b, matches golden reference", actual);
     else begin
       $display("FAIL sample_in=7 (max positive): pdm_out stream=%016b, expected 0111111111111111", actual);
       fail_count = fail_count + 1;

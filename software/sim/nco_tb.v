@@ -1,7 +1,6 @@
-// Testbench for the NCO (sample-rate strobe generator) module (module under
-// test not written yet -- this file is the contract for it).
+// Testbench for the NCO (sample-rate strobe generator) module (src/nco.v).
 //
-// Expected DUT interface (to be implemented as src/nco.v):
+// DUT interface:
 //
 //   module nco #(
 //       parameter              W    = 32,          // accumulator width
@@ -13,17 +12,18 @@
 //   );
 //
 // Semantics: every rising clk edge, the DUT adds STEP into an internal W-bit
-// accumulator; when that would overflow past 2**W, it wraps (subtracts
-// 2**W back off, same accumulate/compare/wrap shape as sigma_delta.v) and
-// drives tick high for that one cycle. reset synchronously clears the
-// internal accumulator to 0 and forces tick to 0.
+// accumulator; when that overflows past 2**W, the accumulator wraps to the
+// remainder and tick pulses high for that one cycle (the module is free to
+// implement the wrap however it likes, e.g. relying on fixed-width overflow
+// instead of an explicit compare-and-subtract). reset synchronously clears
+// the internal accumulator to 0 and forces tick to 0.
 //
 // STEP's default (7015113) is round(44100 * 2**32 / 27_000_000) -- the real
 // 27MHz sysclk -> 44.1kHz sample rate divider this project actually needs.
-// Golden values below were produced by running nco.py itself with these
-// exact clk_freq/target_rate/w numbers over a 20000-cycle window -- this
-// testbench checks the DUT against that known-good software model, not
-// against a hand-derived value.
+// Golden values below (over a 20000-cycle window) were computed from a
+// throwaway Python model of the same accumulate/wrap loop before the DUT
+// existed -- this checks the DUT against that known-good behavior, not a
+// hand-derived value.
 module nco_tb;
 
   localparam W = 32;
@@ -32,7 +32,8 @@ module nco_tb;
   localparam EXPECTED_TICKS = 32;
 
   // Golden tick cycle numbers (1-indexed, first clk edge after reset
-  // deasserts is cycle 1) from nco.py over a 20000-cycle window.
+  // deasserts is cycle 1) over a 20000-cycle window -- see the golden-model
+  // note in the file header above.
   integer golden_timings[0:31];
 
   reg clk, reset;
@@ -140,13 +141,13 @@ module nco_tb;
     end
 
     // Case 1: run NUM_CYCLES clk cycles, compare captured tick timeline
-    // against the exact golden trace from nco.py.
+    // against the exact golden trace.
     run_and_capture(NUM_CYCLES);
 
     if (capture_count == EXPECTED_TICKS)
-      $display("PASS tick count over %0d cycles: got %0d ticks, matches nco.py reference", NUM_CYCLES, capture_count);
+      $display("PASS tick count over %0d cycles: got %0d ticks, matches golden reference", NUM_CYCLES, capture_count);
     else begin
-      $display("FAIL tick count over %0d cycles: got %0d ticks, expected %0d (nco.py reference)", NUM_CYCLES, capture_count, EXPECTED_TICKS);
+      $display("FAIL tick count over %0d cycles: got %0d ticks, expected %0d (golden reference)", NUM_CYCLES, capture_count, EXPECTED_TICKS);
       fail_count = fail_count + 1;
     end
 
@@ -158,9 +159,9 @@ module nco_tb;
       end
     end
     if (!mismatch)
-      $display("PASS tick timeline: all %0d tick cycle numbers match nco.py reference exactly", EXPECTED_TICKS);
+      $display("PASS tick timeline: all %0d tick cycle numbers match golden reference exactly", EXPECTED_TICKS);
     else begin
-      $display("FAIL tick timeline: at least one tick cycle number did not match nco.py reference (see mismatches above)");
+      $display("FAIL tick timeline: at least one tick cycle number did not match golden reference (see mismatches above)");
       fail_count = fail_count + 1;
     end
 
